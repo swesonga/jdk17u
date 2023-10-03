@@ -25,6 +25,7 @@
 
 package sun.security.rsa;
 
+import java.io.IOException;
 import java.nio.ByteBuffer;
 
 import java.security.*;
@@ -225,6 +226,45 @@ abstract class RSASignature extends SignatureSpi {
         } finally {
             resetDigest();
         }
+    }
+
+    /**
+     * Encode the digest, return the to-be-signed data.
+     * Also used by the PKCS#11 provider.
+     */
+    public static byte[] encodeSignature(ObjectIdentifier oid, byte[] digest) {
+        DerOutputStream out = new DerOutputStream();
+        new AlgorithmId(oid).encode(out);
+        out.putOctetString(digest);
+        DerValue result =
+            new DerValue(DerValue.tag_Sequence, out.toByteArray());
+        return result.toByteArray();
+    }
+
+    /**
+     * Decode the signature data. Verify that the object identifier matches
+     * and return the message digest.
+     */
+    public static byte[] decodeSignature(ObjectIdentifier oid, byte[] sig)
+            throws IOException {
+        // Enforce strict DER checking for signatures
+        DerInputStream in = new DerInputStream(sig, 0, sig.length, false);
+        DerValue[] values = in.getSequence(2);
+        if ((values.length != 2) || (in.available() != 0)) {
+            throw new IOException("SEQUENCE length error");
+        }
+        AlgorithmId algId = AlgorithmId.parse(values[0]);
+        if (!algId.getOID().equals(oid)) {
+            throw new IOException("ObjectIdentifier mismatch: "
+                + algId.getOID());
+        }
+        if (algId.getEncodedParams() != null) {
+            throw new IOException("Unexpected AlgorithmId parameters");
+        }
+        if (values[1].isConstructed()) {
+            throw new IOException("Unexpected constructed digest value");
+        }
+        return values[1].getOctetString();
     }
 
     // set parameter, not supported. See JCA doc
